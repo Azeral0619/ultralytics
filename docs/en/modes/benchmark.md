@@ -8,6 +8,31 @@ keywords: model benchmarking, YOLO11, Ultralytics, performance evaluation, expor
 
 <img width="1024" src="https://github.com/ultralytics/docs/releases/download/0/ultralytics-yolov8-ecosystem-integrations.avif" alt="Ultralytics YOLO ecosystem and integrations">
 
+## Benchmark Visualization
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+!!! tip "Refresh Browser"
+
+    You may need to refresh the page to view the graphs correctly due to potential cookie issues.
+
+<div style="display: flex; align-items: flex-start;">
+  <div style="margin-right: 20px;">
+    <label><input type="checkbox" name="algorithm" value="YOLO11" checked><span>YOLO11</span></label><br>
+<label><input type="checkbox" name="algorithm" value="YOLOv10" checked><span>YOLOv10</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOv9" checked><span>YOLOv9</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOv8" checked><span>YOLOv8</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOv7" checked><span>YOLOv7</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOv6-3.0" checked><span>YOLOv6-3.0</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOv5" checked><span>YOLOv5</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="PP-YOLOE+" checked><span>PP-YOLOE+</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="DAMO-YOLO" checked><span>DAMO-YOLO</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="YOLOX" checked><span>YOLOX</span></label><br>
+    <label><input type="checkbox" name="algorithm" value="RTDETRv2" checked><span>RTDETRv2</span></label>
+</div> 
+  <div style="flex-grow: 1;"><canvas id="chart"></canvas></div> <!-- Canva for plotting benchmarks -->
+</div>
+
 ## Introduction
 
 Once your model is trained and validated, the next logical step is to evaluate its performance in various real-world scenarios. Benchmark mode in Ultralytics YOLO11 serves this purpose by providing a robust framework for assessing the speed and [accuracy](https://www.ultralytics.com/glossary/accuracy) of your model across a range of export formats.
@@ -80,7 +105,7 @@ Arguments such as `model`, `data`, `imgsz`, `half`, `device`, and `verbose` prov
 | `imgsz`   | `640`         | The input image size for the model. Can be a single integer for square images or a tuple `(width, height)` for non-square, e.g., `(640, 480)`.                                                          |
 | `half`    | `False`       | Enables FP16 (half-precision) inference, reducing memory usage and possibly increasing speed on compatible hardware. Use `half=True` to enable.                                                         |
 | `int8`    | `False`       | Activates INT8 quantization for further optimized performance on supported devices, especially useful for edge devices. Set `int8=True` to use.                                                         |
-| `device`  | `None`        | Defines the computation device(s) for benchmarking, such as `"cpu"`, `"cuda:0"`, or a list of devices like `"cuda:0,1"` for multi-GPU setups.                                                           |
+| `device`  | `None`        | Defines the computation device(s) for benchmarking, such as `"cpu"` or `"cuda:0"`.                                                                                                                      |
 | `verbose` | `False`       | Controls the level of detail in logging output. A boolean value; set `verbose=True` for detailed logs or a float for thresholding errors.                                                               |
 
 ## Export Formats
