@@ -138,7 +138,7 @@ class BaseValidator:
                 self.args.batch = model.batch_size
             elif not pt and not jit:
                 self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
-                LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
+                LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, {self.args.ch}, {imgsz}, {imgsz})")
 
             if str(self.args.data).split(".")[-1] in {"yaml", "yml"}:
                 self.data = check_det_dataset(self.args.data)
@@ -155,7 +155,7 @@ class BaseValidator:
             self.dataloader = self.dataloader or self.get_dataloader(self.data.get(self.args.split), self.args.batch)
 
             model.eval()
-            model.warmup(imgsz=(1 if pt else self.args.batch, 3, imgsz, imgsz))  # warmup
+            model.warmup(imgsz=(1 if pt else self.args.batch, self.args.ch, imgsz, imgsz))  # warmup
 
         self.run_callbacks("on_val_start")
         dt = (

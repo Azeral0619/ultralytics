@@ -10,7 +10,7 @@ scales: # model compound scaling constants, i.e. 'model=yolo11n.yaml' will call 
   m: [0.50, 1.00, 512] # summary: 409 layers, 20114688 parameters, 20114672 gradients, 68.5 GFLOPs
   l: [1.00, 1.00, 512] # summary: 631 layers, 25372160 parameters, 25372144 gradients, 87.6 GFLOPs
   x: [1.00, 1.50, 512] # summary: 631 layers, 56966176 parameters, 56966160 gradients, 196.0 GFLOPs
-ch: 3
+ch: 6
 
 # YOLO11n backbone
 backbone:

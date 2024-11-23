@@ -9,6 +9,8 @@ from utils.general import make_divisible, check_file, set_logging_v8, LOGGER
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
     select_device
 from ultralytics.nn.modules.block import C2f, SPPF, DFL, C3k2, Conv, C2PSA,ResNetLayer
+from ultralytics.nn.modules import (Segment, Pose, OBB)
+    
 from ultralytics.utils.tal import dist2bbox, make_anchors
 
 try:
@@ -22,7 +24,7 @@ class Detect(nn.Module):
 
     dynamic = False  # force grid reconstruction
     export = False  # export mode
-    end2end = False  # end2end
+    end2end = True  # end2end
     max_det = 300  # max_det
     shape = None
     anchors = torch.empty(0)  # init
@@ -180,13 +182,21 @@ class Model(nn.Module):
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         self.inplace = self.yaml.get('inplace', True)
-
+        self.end2end = getattr(self.model[-1], "end2end", False)
+        
         # Build strides, anchors
         m = self.model[-1]  # Detect()
 
         if isinstance(m, Detect):
             s = 256  # 2x min stride
             m.inplace = self.inplace
+            
+            def _forward(x):
+                """Performs a forward pass through the model, handling different Detect subclass types accordingly."""
+                if self.end2end:
+                    return self.forward(x)["one2many"]
+                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
+            
             m.stride = torch.Tensor([8.0, 16.0, 32.0])
             self.stride = m.stride
             m.bias_init()  # only run once

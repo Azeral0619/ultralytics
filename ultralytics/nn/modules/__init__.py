@@ -56,6 +56,8 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
+    Add,
+    Add2,
 )
 from .conv import (
     CBAM,
@@ -71,6 +73,8 @@ from .conv import (
     LightConv,
     RepConv,
     SpatialAttention,
+    MixConv2d,
+    CrossConv,
 )
 from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect, v10Detect
 from .transformer import (
@@ -84,6 +88,7 @@ from .transformer import (
     TransformerBlock,
     TransformerEncoderLayer,
     TransformerLayer,
+    GPT,
 )
 
 __all__ = (
@@ -156,4 +161,9 @@ __all__ = (
     "C2fCIB",
     "Attention",
     "PSA",
+    "MixConv2d",
+    "CrossConv",
+    "Add",
+    "Add2",
+    "GPT",
 )

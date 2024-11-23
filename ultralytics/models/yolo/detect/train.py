@@ -10,7 +10,7 @@ import torch.nn as nn
 from ultralytics.data import build_dataloader, build_yolo_dataset
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
-from ultralytics.nn.tasks import DetectionModel
+from ultralytics.nn.tasks import DetectionModel, MultiModalDetectionModel
 from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
@@ -123,14 +123,23 @@ class DetectionTrainer(BaseTrainer):
     def plot_training_samples(self, batch, ni):
         """Plots training samples with their annotations."""
         plot_images(
-            images=batch["img"],
+            images=batch["img"][:, :3],  # 先画RGB图像
             batch_idx=batch["batch_idx"],
             cls=batch["cls"].squeeze(-1),
             bboxes=batch["bboxes"],
             paths=batch["im_file"],
-            fname=self.save_dir / f"train_batch{ni}.jpg",
+            fname=self.save_dir / f"train_batch_rgb_{ni}.jpg",
             on_plot=self.on_plot,
         )
+
+        if batch['img'].size(1) > 3:
+            plot_images(images=batch['img'][:, 3:],  # 再画IR图像
+                        batch_idx=batch['batch_idx'],
+                        cls=batch['cls'].squeeze(-1),
+                        bboxes=batch['bboxes'],
+                        paths=batch['im_file'],
+                        fname=self.save_dir / f'train_batch_ir_{ni}.jpg',
+                        on_plot=self.on_plot)
 
     def plot_metrics(self):
         """Plots metrics from a CSV file."""
@@ -141,3 +150,11 @@ class DetectionTrainer(BaseTrainer):
         boxes = np.concatenate([lb["bboxes"] for lb in self.train_loader.dataset.labels], 0)
         cls = np.concatenate([lb["cls"] for lb in self.train_loader.dataset.labels], 0)
         plot_labels(boxes, cls.squeeze(), names=self.data["names"], save_dir=self.save_dir, on_plot=self.on_plot)
+
+class DetectionMIRTrainer(DetectionTrainer):
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        """Return a YOLO detection model."""
+        model = MultiModalDetectionModel(cfg, nc=self.data["nc"], verbose=verbose and RANK == -1)
+        if weights:
+            model.load(weights)
+        return model
