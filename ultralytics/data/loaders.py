@@ -320,7 +320,7 @@ class LoadImagesAndVideos:
         - Can read from a text file containing paths to images and videos.
     """
 
-    def __init__(self, path, batch=1, vid_stride=1):
+    def __init__(self, path, batch=1, vid_stride=1, ch=3):
         """Initialize dataloader for images and videos, supporting various input formats."""
         parent = None
         if isinstance(path, str) and Path(path).suffix == ".txt":  # *.txt file with img/vid/dir on each line
@@ -357,6 +357,7 @@ class LoadImagesAndVideos:
         self.mode = "image"
         self.vid_stride = vid_stride  # video frame-rate stride
         self.bs = batch
+        self.ch = ch
         if any(videos):
             self._new_video(videos[0])  # new video
         else:
@@ -380,11 +381,11 @@ class LoadImagesAndVideos:
                     raise StopIteration
 
             path = self.files[self.count]
-            
+
             # 获取红外图像的路径
-            ir_path = path.split('rgb')
-            ir_path = str(ir_path[0] + 'ir' + ir_path[1])
-            
+            ir_path = path.split("rgb")
+            ir_path = str(ir_path[0] + "ir" + ir_path[1])
+
             if self.video_flag[self.count]:
                 self.mode = "video"
                 if not self.cap or not self.cap.isOpened():
@@ -428,7 +429,7 @@ class LoadImagesAndVideos:
                 else:
                     # im0 = imread(path)  # BGR
                     # 如果ch小于4，说明是可见光图像，否则是红外图像和可见光的合并图像
-                    im0 = imread(path) if self.hyp.ch < 4 else cv2.merge((imread(ir_path), imread(path)))
+                    im0 = imread(path) if self.ch < 4 else cv2.merge((imread(ir_path), imread(path)))
 
                 if im0 is None:
                     LOGGER.warning(f"WARNING ⚠️ Image Read Error {path}")

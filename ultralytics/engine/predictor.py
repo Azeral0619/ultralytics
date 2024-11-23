@@ -200,6 +200,7 @@ class BasePredictor:
             batch=self.args.batch,
             vid_stride=self.args.vid_stride,
             buffer=self.args.stream_buffer,
+            ch=self.args.ch,
         )
         self.source_type = self.dataset.source_type
         if not getattr(self, "stream", True) and (

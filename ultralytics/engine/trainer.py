@@ -284,6 +284,7 @@ class BaseTrainer:
                 imgsz=self.args.imgsz,
                 amp=self.amp,
                 batch=self.batch_size,
+                ch=self.args.ch,
             )
 
         # Dataloaders
