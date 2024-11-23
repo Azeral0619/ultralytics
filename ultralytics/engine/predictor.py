@@ -262,6 +262,8 @@ class BasePredictor:
                 # Postprocess
                 with profilers[2]:
                     self.results = self.postprocess(preds, im, im0s)
+                    if isinstance(self.results, tuple):
+                        self.results, self.ir_results = self.results
                 self.run_callbacks("on_predict_postprocess_end")
 
                 # Visualize, save, write results
