@@ -261,8 +261,10 @@ class BasePredictor:
 
                 # Postprocess
                 with profilers[2]:
+                    self.RGBIR = False
                     self.results = self.postprocess(preds, im, im0s)
                     if isinstance(self.results, tuple):
+                        self.RGBIR = True
                         self.results, self.ir_results = self.results
                 self.run_callbacks("on_predict_postprocess_end")
 
@@ -275,8 +277,21 @@ class BasePredictor:
                         "inference": profilers[1].dt * 1e3 / n,
                         "postprocess": profilers[2].dt * 1e3 / n,
                     }
+                    if self.RGBIR:
+                        self.ir_results[i].speed = {
+                            "preprocess": profilers[0].dt * 1e3 / n,
+                            "inference": profilers[1].dt * 1e3 / n,
+                            "postprocess": profilers[2].dt * 1e3 / n,
+                        }
                     if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
-                        s[i] += self.write_results(i, Path(paths[i]), im, s)
+                        s[i] += self.write_results(i, Path(paths[i]), im[:, :3], s)
+
+                    if self.RGBIR:
+                        if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
+                            temp = self.results
+                            self.results = self.ir_results
+                            self.write_results(i, Path(paths[i][:-4] + "ir" + paths[i][-4:]), im[:, 3:], s)
+                            self.results = temp
 
                 # Print batch results
                 if self.args.verbose:

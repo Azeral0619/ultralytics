@@ -37,15 +37,19 @@ class DetectionPredictor(BasePredictor):
         results = []
         ir_results = []
         for pred, orig_img, img_path in zip(preds, orig_imgs, self.batch[0]):
-            temp = orig_img
-            orig_img = orig_img[..., 3:]    # 此时传入进来的im0的前三通道是红外，后三通道是可见光
-            pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
-            results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred))
-            # 再推理红外
-            orig_img = temp
-            ir_path = img_path.split('rgb')
-            ir_path = str(ir_path[0] + 'ir' + ir_path[1] if len(ir_path) > 1 else '')
-            if orig_img.shape[-1] >= 4:
-                ir_img = orig_img[..., :3]
-                ir_results.append(Results(ir_img, path=ir_path, names=self.model.names, boxes=pred))
+            if orig_img.shape[-1] > 3:
+                temp = orig_img
+                orig_img = orig_img[..., 3:]  # 此时传入进来的im0的前三通道是红外，后三通道是可见光
+                pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
+                results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred))
+                # 再推理红外
+                orig_img = temp
+                ir_path = img_path.split("rgb")
+                ir_path = str(ir_path[0] + "ir" + ir_path[1] if len(ir_path) > 1 else "")
+                if orig_img.shape[-1] >= 4:
+                    ir_img = orig_img[..., :3]
+                    ir_results.append(Results(ir_img, path=ir_path, names=self.model.names, boxes=pred))
+            else:
+                pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
+                results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred))
         return results, ir_results
