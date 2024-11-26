@@ -1,3 +1,4 @@
+import os
 import gradio as gr
 import cv2
 import tempfile
@@ -14,8 +15,8 @@ task = "mir"
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
     global previous_model_id, model
     if not (previous_model_id is not None and previous_model_id == model_id):
-        model = YOLO.from_pretrained(f"{model_path}/{model_id}", task="mir")
-    previous_model_id = model
+        model = YOLO(f"{model_path}/{model_id}.engine", task="mir")
+    previous_model_id = model_id
     if image_rgb and image_ir:
         image_ir, image_rgb = (
             cv2.cvtColor(np.array(image_ir), cv2.COLOR_RGB2BGR),
@@ -23,7 +24,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         )
         image = cv2.merge((image_ir, image_rgb))
         results = model.predict(source=image, conf=conf_threshold)
-        annotated_image = np.hstack(results[0][0].plot(), results[1][0].plot())
+        annotated_image = np.hstack((results[0][0].plot(), results[1][0].plot()))
         return annotated_image[:, :, ::-1], None
     elif video_rgb and video_ir:
         video_path_rgb = tempfile.mktemp(suffix=".webm")
@@ -49,25 +50,30 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         if fps_rgb != fps_ir or frame_width_rgb != frame_width_ir or frame_height_rgb != frame_height_ir:
             cap_rgb.release()
             cap_ir.release()
+            os.remove(video_path_ir)
+            os.remove(video_path_rgb)
             raise ValueError("视频的帧率、宽度或高度不匹配")
 
         fps, frame_width, frame_height = fps_ir, frame_width_ir, frame_height_ir
 
-        output_video_path = tempfile.mktemp(suffix=".webm")
-        out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*"vp80"), fps, (frame_width, frame_height))
+        output_video_path = tempfile.mktemp(suffix=".mp4")
+        out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (frame_width * 2, frame_height))
 
         while cap_ir.isOpened() and cap_rgb.isOpened():
-            ret_ir, frame_ir, ret_rgb, frame_rgb = cap_ir.read(), cap_rgb.read()
+            ret_ir, frame_ir = cap_ir.read()
+            ret_rgb, frame_rgb = cap_rgb.read()
             if not ret_ir or not ret_rgb:
                 break
             frame = cv2.merge((frame_ir, frame_rgb))
             results = model.predict(source=frame, conf=conf_threshold)
-            annotated_frame = np.hstack(results[0][0].plot(), results[1][0].plot())
+            annotated_frame = np.hstack((results[0][0].plot(), results[1][0].plot()))
             out.write(annotated_frame)
-
         cap_ir.release()
         cap_rgb.release()
         out.release()
+
+        os.remove(video_path_ir)
+        os.remove(video_path_rgb)
 
         return None, output_video_path
 
@@ -168,4 +174,4 @@ with gradio_app:
         with gr.Column():
             app()
 if __name__ == "__main__":
-    gradio_app.launch()
+    gradio_app.launch(server_name="0.0.0.0")
