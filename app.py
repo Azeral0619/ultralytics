@@ -18,7 +18,7 @@ task = "obb"
 
 
 def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
-    shape = results_rgb.orig_img.shape
+    shape = results_rgb.orig_img[0].shape
     if task != "obb":
         # 获取RGB和IR的检测结果
         boxes_rgb = results_rgb[0].boxes
