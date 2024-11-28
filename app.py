@@ -3,11 +3,11 @@ import os
 import gradio as gr
 import cv2
 import tempfile
-import threading
 
 import numpy as np
 from ultralytics import YOLO
 from torchvision.ops import nms
+from ultralytics.utils.ops import nms_rotated
 import torch
 
 previous_model_id = None
@@ -18,71 +18,150 @@ task = "obb"
 
 
 def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
-    # 获取RGB和IR的检测结果
-    boxes_rgb = results_rgb[0].boxes
-    boxes_ir = results_ir[0].boxes
+    shape = results_rgb.orig_img.shape
+    if task != "obb":
+        # 获取RGB和IR的检测结果
+        boxes_rgb = results_rgb[0].boxes
+        boxes_ir = results_ir[0].boxes
 
-    # 获取RGB和IR的class names
-    names_rgb = results_rgb[0].names
-    names_ir = results_ir[0].names
+        # 获取RGB和IR的class names
+        names_rgb = results_rgb[0].names
+        names_ir = results_ir[0].names
 
-    # 合并class names并创建映射
-    merged_names = names_rgb
-    name_to_index = {v: k for k, v in names_rgb.items()}
-    index = len(name_to_index)
+        # 合并class names并创建映射
+        merged_names = names_rgb
+        name_to_index = {v: k for k, v in names_rgb.items()}
+        index = len(name_to_index)
 
-    # 处理RGB的names
-    # for idx, name in names_rgb.items():
-    #     if name not in name_to_index:
-    #         name_to_index[name] = index
-    #         merged_names[index] = name
-    #         index += 1
+        # 处理RGB的names
+        # for idx, name in names_rgb.items():
+        #     if name not in name_to_index:
+        #         name_to_index[name] = index
+        #         merged_names[index] = name
+        #         index += 1
 
-    # 处理IR的names
-    for idx, name in names_ir.items():
-        if name not in name_to_index:
-            name_to_index[name] = index
-            merged_names[index] = name
-            index += 1
+        # 处理IR的names
+        for idx, name in names_ir.items():
+            if name not in name_to_index:
+                name_to_index[name] = index
+                merged_names[index] = name
+                index += 1
 
-    # 调整RGB检测框的cls索引
-    # cls_rgb = boxes_rgb.cls.cpu().numpy()
-    # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
-    # cls_rgb_new = torch.tensor(cls_rgb_new, device=boxes_rgb.cls.device)
-    # boxes_rgb.cls = cls_rgb_new
+        # 调整RGB检测框的cls索引
+        # cls_rgb = boxes_rgb.cls.cpu().numpy()
+        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
+        # cls_rgb_new = torch.tensor(cls_rgb_new, device=boxes_rgb.cls.device)
+        # boxes_rgb.cls = cls_rgb_new
+        if boxes_ir is None or boxes_rgb is None:
+            if boxes_ir is None:
+                fused_results = results_rgb.copy()
+                fused_results[0].names = merged_names  # 更新names
+            return fused_results
 
-    # 调整IR检测框的cls索引
-    cls_ir = boxes_ir.cls.cpu().numpy()
-    cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
-    cls_ir_new = torch.tensor(cls_ir_new, device=boxes_ir.cls.device)
-    boxes_ir.cls = cls_ir_new
+        # 调整IR检测框的cls索引
+        cls_ir = boxes_ir.cls.cpu().numpy()
+        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
+        cls_ir_new = torch.tensor(cls_ir_new, device=boxes_ir.cls.device)
+        boxes_ir.cls = cls_ir_new
 
-    # 合并检测框、置信度和类别
-    boxes_combined = torch.cat([boxes_rgb.xyxy, boxes_ir.xyxy], dim=0)
-    scores_combined = torch.cat([boxes_rgb.conf, boxes_ir.conf], dim=0)
-    classes_combined = torch.cat([boxes_rgb.cls, boxes_ir.cls], dim=0)
+        # 合并检测框、置信度和类别
+        boxes_combined = torch.cat([boxes_rgb.xyxy, boxes_ir.xyxy], dim=0)
+        scores_combined = torch.cat([boxes_rgb.conf, boxes_ir.conf], dim=0)
+        classes_combined = torch.cat([boxes_rgb.cls, boxes_ir.cls], dim=0)
 
-    # 使用NMS去除重复检测框
-    indices = nms(boxes_combined, scores_combined, iou_threshold=iou_threshold)
-    fused_boxes = boxes_combined[indices]
-    fused_scores = scores_combined[indices]
-    fused_classes = classes_combined[indices]
+        # 使用NMS去除重复检测框
+        indices = nms(boxes_combined, scores_combined, iou_threshold=iou_threshold)
+        fused_boxes = boxes_combined[indices]
+        fused_scores = scores_combined[indices]
+        fused_classes = classes_combined[indices]
 
-    # 创建新的Boxes对象
-    from ultralytics.engine.results import Boxes
+        # print(fused_boxes.shape, fused_scores.shape, fused_classes.shape)
 
-    fused_boxes_obj = Boxes(
-        xyxy=fused_boxes,
-        conf=fused_scores,
-        cls=fused_classes,
-    )
+        # 创建新的Boxes对象
+        from ultralytics.engine.results import Boxes
 
-    # 创建新的Results对象
-    fused_results = results_rgb.copy()
-    fused_results[0].boxes = fused_boxes_obj
-    fused_results[0].names = merged_names  # 更新names
+        fused_boxes_obj = Boxes(
+            boxes=np.hstack((fused_boxes, fused_scores, fused_classes)),
+            orig_shape=shape,
+        )
 
-    return fused_results
+        # 创建新的Results对象
+        fused_results = results_rgb.copy()
+        fused_results[0].boxes = fused_boxes_obj
+        fused_results[0].names = merged_names  # 更新names
+
+        return fused_results
+    else:
+        # 获取RGB和IR的检测结果
+        obb_rgb = results_rgb[0].obb
+        obb_ir = results_ir[0].obb
+
+        # 获取RGB和IR的class names
+        names_rgb = results_rgb[0].names
+        names_ir = results_ir[0].names
+
+        # 合并class names并创建映射
+        merged_names = names_rgb
+        name_to_index = {v: k for k, v in names_rgb.items()}
+        index = len(name_to_index)
+
+        # 处理RGB的names
+        # for idx, name in names_rgb.items():
+        #     if name not in name_to_index:
+        #         name_to_index[name] = index
+        #         merged_names[index] = name
+        #         index += 1
+
+        # 处理IR的names
+        for idx, name in names_ir.items():
+            if name not in name_to_index:
+                name_to_index[name] = index
+                merged_names[index] = name
+                index += 1
+
+        # 调整RGB检测框的cls索引
+        # cls_rgb = obb_rgb.cls.cpu().numpy()
+        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
+        # cls_rgb_new = torch.tensor(cls_rgb_new, device=obb_rgb.cls.device)
+        # obb_rgb.cls = cls_rgb_new
+        if obb_ir is None or obb_rgb is None:
+            if obb_ir is None:
+                fused_results = results_rgb.copy()
+                fused_results[0].names = merged_names  # 更新names
+            return fused_results
+
+        # 调整IR检测框的cls索引
+        cls_ir = obb_ir.cls.cpu().numpy()
+        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
+        cls_ir_new = torch.tensor(cls_ir_new, device=obb_ir.cls.device)
+        obb_ir.cls = cls_ir_new
+
+        # 合并检测框、置信度和类别
+        obb_combined = torch.cat([obb_rgb.xywhr, obb_ir.xywhr], dim=0)
+        scores_combined = torch.cat([obb_rgb.conf, obb_ir.conf], dim=0)
+        classes_combined = torch.cat([obb_rgb.cls, obb_ir.cls], dim=0)
+
+        # 使用NMS去除重复检测框
+        indices = nms_rotated(obb_combined, scores_combined, iou_threshold=iou_threshold)
+        fused_obb = obb_combined[indices]
+        fused_scores = scores_combined[indices]
+        fused_classes = classes_combined[indices]
+        # print(fused_obb.shape, fused_scores.shape, fused_classes.shape)
+
+        # 创建新的Boxes对象
+        from ultralytics.engine.results import OBB
+
+        fused_obb_obj = OBB(
+            boxes=np.hstack((fused_obb, fused_scores, fused_classes)),
+            orig_shape=shape,
+        )
+
+        # 创建新的Results对象
+        fused_results = results_rgb.copy()
+        fused_results[0].obb = fused_obb_obj
+        fused_results[0].names = merged_names  # 更新names
+
+        return fused_results
 
 
 def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold):
@@ -108,6 +187,8 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
     previous_model_id = model_id
     if image_rgb and image_ir:
+        if image_rgb.size[0] != image_ir.size[0] or image_rgb.size[1] != image_ir.size[1]:
+            raise ValueError("尺寸不匹配")
         image_ir, image_rgb = (
             cv2.cvtColor(np.array(image_ir), cv2.COLOR_RGB2BGR),
             cv2.cvtColor(np.array(image_rgb), cv2.COLOR_RGB2BGR),
