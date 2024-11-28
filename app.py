@@ -292,9 +292,7 @@ def app():
             )
             model_id = gr.Dropdown(
                 label="Model",
-                choices=[
-                    "yolo11n-obb",
-                ],
+                choices=["yolo11n-obb", "yolo11n-obb-zhcn"],
                 value="yolo11n-obb",
             )
             conf_threshold = gr.Slider(
