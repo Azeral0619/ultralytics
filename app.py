@@ -81,7 +81,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         from ultralytics.engine.results import Boxes
 
         fused_boxes_obj = Boxes(
-            boxes=torch.hstack((fused_boxes, fused_scores, fused_classes)),
+            boxes=torch.hstack((fused_boxes, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
             orig_shape=shape,
         )
 
@@ -152,7 +152,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         from ultralytics.engine.results import OBB
 
         fused_obb_obj = OBB(
-            boxes=torch.hstack((fused_obb, fused_scores, fused_classes)),
+            boxes=torch.hstack((fused_obb, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
             orig_shape=shape,
         )
 
