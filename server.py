@@ -68,12 +68,12 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         cls_ir = boxes_ir.cls.cpu().numpy()
         cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
         cls_ir_new = torch.tensor(cls_ir_new, device=boxes_ir.cls.device)
-        boxes_ir.cls = cls_ir_new
+        # boxes_ir.cls = cls_ir_new
 
         # 合并检测框、置信度和类别
         boxes_combined = torch.cat([boxes_rgb.xyxy, boxes_ir.xyxy], dim=0)
         scores_combined = torch.cat([boxes_rgb.conf, boxes_ir.conf], dim=0)
-        classes_combined = torch.cat([boxes_rgb.cls, boxes_ir.cls], dim=0)
+        classes_combined = torch.cat([boxes_rgb.cls, cls_ir_new], dim=0)
 
         # 使用NMS去除重复检测框
         indices = nms(boxes_combined, scores_combined, iou_threshold=iou_threshold)
@@ -140,15 +140,15 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         cls_ir = obb_ir.cls.cpu().numpy()
         cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
         cls_ir_new = torch.tensor(cls_ir_new, device=obb_ir.cls.device)
-        obb_ir.cls = cls_ir_new
+        # obb_ir.cls = cls_ir_new
 
         # 合并检测框、置信度和类别
         obb_combined = torch.cat([obb_rgb.xywhr, obb_ir.xywhr], dim=0)
         scores_combined = torch.cat([obb_rgb.conf, obb_ir.conf], dim=0)
-        classes_combined = torch.cat([obb_rgb.cls, obb_ir.cls], dim=0)
+        classes_combined = torch.cat([obb_rgb.cls, cls_ir_new], dim=0)
 
         # 使用NMS去除重复检测框
-        indices = nms_rotated(obb_combined, scores_combined, iou_threshold=iou_threshold)
+        indices = nms_rotated(obb_combined, scores_combined, threshold=iou_threshold)
         fused_obb = obb_combined[indices]
         fused_scores = scores_combined[indices]
         fused_classes = classes_combined[indices]

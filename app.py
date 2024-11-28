@@ -142,7 +142,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         classes_combined = torch.cat([obb_rgb.cls, cls_ir_new], dim=0)
 
         # 使用NMS去除重复检测框
-        indices = nms_rotated(obb_combined, scores_combined, iou_threshold=iou_threshold)
+        indices = nms_rotated(obb_combined, scores_combined, threshold=iou_threshold)
         fused_obb = obb_combined[indices]
         fused_scores = scores_combined[indices]
         fused_classes = classes_combined[indices]
