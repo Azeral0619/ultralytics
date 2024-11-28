@@ -1,5 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import copy
 import io
 import os
 import tempfile
@@ -60,7 +61,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         # boxes_rgb.cls = cls_rgb_new
         if boxes_ir is None or boxes_rgb is None:
             if boxes_ir is None:
-                fused_results = results_rgb.copy()
+                fused_results = copy.deepcopy(results_rgb)
                 fused_results[0].names = merged_names  # 更新names
             return fused_results
 
@@ -92,7 +93,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         )
 
         # 创建新的Results对象
-        fused_results = results_rgb.copy()
+        fused_results = copy.deepcopy(results_rgb)
         fused_results[0].boxes = fused_boxes_obj
         fused_results[0].names = merged_names  # 更新names
 
@@ -132,7 +133,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         # obb_rgb.cls = cls_rgb_new
         if obb_ir is None or obb_rgb is None:
             if obb_ir is None:
-                fused_results = results_rgb.copy()
+                fused_results = copy.deepcopy(results_rgb)
                 fused_results[0].names = merged_names  # 更新names
             return fused_results
 
@@ -163,7 +164,7 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
         )
 
         # 创建新的Results对象
-        fused_results = results_rgb.copy()
+        fused_results = copy.deepcopy(results_rgb)
         fused_results[0].obb = fused_obb_obj
         fused_results[0].names = merged_names  # 更新names
 
