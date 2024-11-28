@@ -14,6 +14,8 @@ model_rgb = None
 model_ir = None
 model_path = r"runs/weights"
 task = "obb"
+results_rgb = None
+results_ir = None
 
 
 def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
@@ -85,15 +87,12 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
 
 
 def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold):
-    results_rgb = None
-    results_ir = None
-
     def predict_rgb():
-        nonlocal results_rgb
+        global results_rgb
         results_rgb = model_rgb.predict(source=source_rgb, conf=conf_threshold)
 
     def predict_ir():
-        nonlocal results_ir
+        global results_ir
         results_ir = model_ir.predict(source=source_ir, conf=conf_threshold)
 
     # 创建线程
@@ -108,11 +107,9 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
     thread_rgb.join()
     thread_ir.join()
 
-    return results_rgb, results_ir
-
 
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
-    global previous_model_id, model_rgb, model_ir
+    global previous_model_id, model_rgb, model_ir, results_rgb, results_ir
     if not (previous_model_id is not None and previous_model_id == model_id):
         model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
         model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
@@ -123,7 +120,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             cv2.cvtColor(np.array(image_rgb), cv2.COLOR_RGB2BGR),
         )
 
-        results_rgb, results_ir = parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
+        parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
         results = late_fusion(results_rgb, results_ir)
         annotated_image = results[0].plot()
         # origin
@@ -221,9 +218,9 @@ def app():
             model_id = gr.Dropdown(
                 label="Model",
                 choices=[
-                    "detect",
+                    "yolo11n-obb",
                 ],
-                value="detect",
+                value="yolo11n-obb",
             )
             conf_threshold = gr.Slider(
                 label="Confidence Threshold",
