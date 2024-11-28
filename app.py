@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import os
 import gradio as gr
 import cv2
@@ -14,8 +15,6 @@ model_rgb = None
 model_ir = None
 model_path = r"runs/weights"
 task = "obb"
-results_rgb = None
-results_ir = None
 
 
 def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
@@ -87,29 +86,23 @@ def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
 
 
 def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold):
-    def predict_rgb():
-        global results_rgb
-        results_rgb = model_rgb.predict(source=source_rgb, conf=conf_threshold)
+    results_rgb = None
+    results_ir = None
 
-    def predict_ir():
-        global results_ir
-        results_ir = model_ir.predict(source=source_ir, conf=conf_threshold)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        # 提交预测任务，返回 Future 对象
+        future_rgb = executor.submit(model_rgb.predict, source=source_rgb, conf=conf_threshold)
+        future_ir = executor.submit(model_ir.predict, source=source_ir, conf=conf_threshold)
 
-    # 创建线程
-    thread_rgb = threading.Thread(target=predict_rgb)
-    thread_ir = threading.Thread(target=predict_ir)
+        # 获取结果
+        results_rgb = future_rgb.result()
+        results_ir = future_ir.result()
 
-    # 启动线程
-    thread_rgb.start()
-    thread_ir.start()
-
-    # 等待线程完成
-    thread_rgb.join()
-    thread_ir.join()
+    return results_rgb, results_ir
 
 
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
-    global previous_model_id, model_rgb, model_ir, results_rgb, results_ir
+    global previous_model_id, model_rgb, model_ir
     if not (previous_model_id is not None and previous_model_id == model_id):
         model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
         model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
@@ -120,7 +113,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             cv2.cvtColor(np.array(image_rgb), cv2.COLOR_RGB2BGR),
         )
 
-        parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
+        results_rgb, results_ir = parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
         results = late_fusion(results_rgb, results_ir)
         annotated_image = results[0].plot()
         # origin
