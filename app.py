@@ -127,7 +127,11 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         results = late_fusion(results_rgb, results_ir)
         annotated_image = results[0].plot()
         # origin
-        # annotated_frame_origin = results_rgb[0].plot()
+        annotated_frame_origin = results_rgb[0].plot()
+
+        # hstack
+        annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
+
         return annotated_image[:, :, ::-1], None
     elif video_rgb and video_ir:
         video_path_rgb = tempfile.mktemp(suffix=".webm")
@@ -172,7 +176,11 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             results = late_fusion(results_rgb, results_ir)
             annotated_frame = results[0].plot()
             # origin
-            # annotated_frame_origin = results_rgb[0].plot()
+            annotated_frame_origin = results_rgb[0].plot()
+
+            # hstack
+            annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
+
             out.write(annotated_frame)
         cap_ir.release()
         cap_rgb.release()
