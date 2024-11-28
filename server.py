@@ -1,13 +1,18 @@
+import asyncio
+import io
 import os
-import gradio as gr
-import cv2
 import tempfile
 import threading
 
+import cv2
 import numpy as np
-from ultralytics import YOLO
-from torchvision.ops import nms
 import torch
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image
+from torchvision.ops import nms
+
+from ultralytics import YOLO
 
 previous_model_id = None
 model_rgb = None
@@ -184,100 +189,43 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         return None, output_video_path
 
 
-def yolo_inference_for_examples(image_rgb, image_ir, model_path, conf_threshold):
-    annotated_image, _ = yolo_inference(image_rgb, image_ir, None, None, model_path, conf_threshold)
-    return annotated_image
+app = FastAPI()
+lock = asyncio.Lock()
 
 
-def app():
-    with gr.Blocks():
-        with gr.Row():
-            with gr.Column():
-                image_rgb = gr.Image(type="pil", label="Image_RGB", visible=True)
-                image_ir = gr.Image(type="pil", label="Image_IR", visible=True)
-
-                video_RGB = gr.Video(label="Video_RGB", visible=False)
-                video_IR = gr.Video(label="Video_IR", visible=False)
-
-            with gr.Column():
-                output_image = gr.Image(type="numpy", label="Annotated Image", visible=True)
-                output_video = gr.Video(label="Annotated Video", visible=False)
-
-        with gr.Row():
-            yolo_infer = gr.Button(value="Detect Objects")
-            input_type = gr.Radio(
-                choices=["Image", "Video"],
-                value="Image",
-                label="Input Type",
-            )
-            model_id = gr.Dropdown(
-                label="Model",
-                choices=[
-                    "detect",
-                ],
-                value="detect",
-            )
-            conf_threshold = gr.Slider(
-                label="Confidence Threshold",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=0.25,
-            )
-
-        def update_visibility(input_type):
-            image_rgb = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            image_ir = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            video_RGB = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
-            video_IR = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
-            output_image = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            output_video = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
-
-            return image_rgb, image_ir, video_RGB, video_IR, output_image, output_video
-
-        input_type.change(
-            fn=update_visibility,
-            inputs=[input_type],
-            outputs=[image_rgb, image_ir, video_RGB, video_IR, output_image, output_video],
-        )
-
-        def run_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold, input_type):
-            if input_type == "Image":
-                return yolo_inference(image_rgb, image_ir, None, None, model_id, conf_threshold)
-            else:
-                return yolo_inference(None, None, video_rgb, video_ir, model_id, conf_threshold)
-
-        yolo_infer.click(
-            fn=run_inference,
-            inputs=[image_rgb, image_ir, video_RGB, video_IR, model_id, conf_threshold, input_type],
-            outputs=[output_image, output_video],
-        )
-
-        gr.Examples(
-            examples=[
-                [
-                    "ultralytics/assets/LLVIP_RGB.jpg",
-                    "ultralytics/assets/LLVIP_IR.jpg",
-                    "detect",
-                    0.25,
-                ],
-            ],
-            fn=yolo_inference_for_examples,
-            inputs=[
-                image_rgb,
-                image_ir,
-                model_id,
-                conf_threshold,
-            ],
-            outputs=[output_image],
-            cache_examples="lazy",
-        )
+@app.post("/inference/image")
+async def inference_image(
+    image_rgb: bytes = None, image_ir: bytes = None, model_id: str = "yolo11n-obb", conf_threshold: float = 0.3
+):
+    async with lock:
+        try:
+            image_rgb_data = await image_rgb.read()
+            image_ir_data = await image_ir.read()
+            image_rgb = Image.open(io.BytesIO(image_rgb_data))
+            image_ir = Image.open(io.BytesIO(image_ir_data))
+            annotated_image, _ = yolo_inference(image_rgb, image_ir, None, None, model_id, conf_threshold)
+            _, img_encoded = cv2.imencode(".jpg", annotated_image)
+            return StreamingResponse(io.BytesIO(img_encoded.tobytes()), media_type="image/jpeg")
+        except Exception as e:
+            return {"error": str(e)}
 
 
-gradio_app = gr.Blocks()
-with gradio_app:
-    with gr.Row():
-        with gr.Column():
-            app()
+@app.post("/inference/video")
+async def inference_video(
+    video_rgb: UploadFile = File(...),
+    video_ir: UploadFile = File(...),
+    model_id: str = "yolo11n-obb",
+    conf_threshold: float = 0.3,
+):
+    async with lock:
+        # 进行推理
+        _, output_video_path = yolo_inference(None, None, video_rgb, video_ir, model_id, conf_threshold)
+
+        # 返回处理后的视频文件
+        return FileResponse(output_video_path, media_type="video/mp4")
+
+
 if __name__ == "__main__":
-    gradio_app.launch(server_name="0.0.0.0")
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=7860)
