@@ -46,6 +46,8 @@ from ultralytics.utils import (
     url2file,
 )
 
+from PIL import ImageFont
+
 
 def parse_requirements(file_path=ROOT.parent / "requirements.txt", package=""):
     """
@@ -115,6 +117,24 @@ def is_ascii(s) -> bool:
 
     # Check if the string is composed of only ASCII characters
     return all(ord(c) < 128 for c in s)
+
+
+def is_chinese(s="人工智能") -> bool:
+    return True if re.search(r"[\u4e00-\u9fff]", str(s)) else False
+
+
+def check_pil_font(font="Arial.ttf", size=10):
+    # Return a PIL TrueType Font, downloading to CONFIG_DIR if necessary
+    font = Path(font)
+    font = font if font.exists() else (USER_CONFIG_DIR / font.name)
+    try:
+        return ImageFont.truetype(str(font) if font.exists() else font.name, size)
+    except Exception:  # download if missing
+        check_font(font)
+        try:
+            return ImageFont.truetype(str(font), size)
+        except TypeError:
+            check_requirements("Pillow>=8.4.0")  #
 
 
 def check_imgsz(imgsz, stride=32, min_dim=1, max_dim=2, floor=0):
