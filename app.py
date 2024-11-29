@@ -182,7 +182,7 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
 
 
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
-    global previous_model_id, model_rgb, model_ir
+    global previous_model_id, model_rgb, model_ir, task
     if not (previous_model_id is not None and previous_model_id == model_id):
         if "obb" not in model_id:
             task = "detect"

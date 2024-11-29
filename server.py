@@ -279,7 +279,7 @@ lock = asyncio.Lock()
 
 @app.post("/inference/image")
 async def inference_image(
-    image_rgb: bytes = None, image_ir: bytes = None, model_id: str = "yolo11n-obb", conf_threshold: float = 0.3
+    image_rgb: bytes = None, image_ir: bytes = None, model_id: str = "yolo11n-obb-zhcn", conf_threshold: float = 0.3
 ):
     async with lock:
         try:
