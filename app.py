@@ -208,7 +208,21 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         # hstack
         annotated_image = np.hstack((annotated_image_origin, annotated_image))
 
-        return annotated_image[:, :, ::-1], None
+        output_text_list = []
+        for i, box in enumerate(results[0].boxes if task == "detect" else results[0].obb):
+            output_text_list.append(
+                [
+                    str(
+                        tuple(box.xywh.cpu().numpy().tolist())
+                        if task == "detect"
+                        else tuple(box.xywhr.cpu().numpy().tolist())
+                    ),
+                    results[0].names[int(box.cls)],
+                    str(box.conf.cpu().numpy().item()),
+                ]
+            )
+
+        return annotated_image[:, :, ::-1], None, output_text_list
     elif video_rgb and video_ir:
         video_path_rgb = tempfile.mktemp(suffix=".webm")
         with open(video_path_rgb, "wb") as f:
@@ -265,7 +279,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         os.remove(video_path_ir)
         os.remove(video_path_rgb)
 
-        return None, output_video_path
+        return None, output_video_path, None
 
 
 def yolo_inference_for_examples(image_rgb, image_ir, model_path, conf_threshold):
@@ -277,30 +291,38 @@ def app():
     with gr.Blocks():
         with gr.Row():
             with gr.Column():
-                image_rgb = gr.Image(type="pil", label="Image_RGB", visible=True)
-                image_ir = gr.Image(type="pil", label="Image_IR", visible=True)
+                image_rgb = gr.Image(type="pil", label="RGB图片", visible=True)
+                image_ir = gr.Image(type="pil", label="红外图片", visible=True)
 
-                video_RGB = gr.Video(label="Video_RGB", visible=False)
-                video_IR = gr.Video(label="Video_IR", visible=False)
+                video_RGB = gr.Video(label="RGB视频", visible=False)
+                video_IR = gr.Video(label="红外视频", visible=False)
 
             with gr.Column():
-                output_image = gr.Image(type="numpy", label="Annotated Image", visible=True)
-                output_video = gr.Video(label="Annotated Video", visible=False)
+                output_image = gr.Image(type="numpy", label="标注图片", visible=True)
+                output_video = gr.Video(label="标注视频", visible=False)
+
+                output_text = gr.DataFrame(
+                    label="检测结果",
+                    headers=["检测框", "类别", "置信度"],
+                    datatype=["str", "str"],
+                    interactive=False,
+                    wrap=True,
+                )
 
         with gr.Row():
-            yolo_infer = gr.Button(value="Detect Objects")
+            yolo_infer = gr.Button(value="检测物体")
             input_type = gr.Radio(
-                choices=["Image", "Video"],
-                value="Image",
-                label="Input Type",
+                choices=["图片", "视频"],
+                value="图片",
+                label="输入类型",
             )
             model_id = gr.Dropdown(
-                label="Model",
-                choices=["yolo11n-obb", "yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
-                value="yolo11n-obb",
+                label="模型",
+                choices=["yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
+                value="yolo11n-obb-zhcn",
             )
             conf_threshold = gr.Slider(
-                label="Confidence Threshold",
+                label="置信度阈值",
                 minimum=0.0,
                 maximum=1.0,
                 step=0.05,
@@ -308,23 +330,24 @@ def app():
             )
 
         def update_visibility(input_type):
-            image_rgb = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            image_ir = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            video_RGB = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
-            video_IR = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
-            output_image = gr.update(visible=True) if input_type == "Image" else gr.update(visible=False)
-            output_video = gr.update(visible=False) if input_type == "Image" else gr.update(visible=True)
+            image_rgb = gr.update(visible=True) if input_type == "图片" else gr.update(visible=False)
+            image_ir = gr.update(visible=True) if input_type == "图片" else gr.update(visible=False)
+            video_RGB = gr.update(visible=False) if input_type == "图片" else gr.update(visible=True)
+            video_IR = gr.update(visible=False) if input_type == "图片" else gr.update(visible=True)
+            output_image = gr.update(visible=True) if input_type == "图片" else gr.update(visible=False)
+            output_video = gr.update(visible=False) if input_type == "图片" else gr.update(visible=True)
+            output_text = gr.update(visible=False) if input_type == "图片" else gr.update(visible=True)
 
-            return image_rgb, image_ir, video_RGB, video_IR, output_image, output_video
+            return image_rgb, image_ir, video_RGB, video_IR, output_image, output_video, output_text
 
         input_type.change(
             fn=update_visibility,
             inputs=[input_type],
-            outputs=[image_rgb, image_ir, video_RGB, video_IR, output_image, output_video],
+            outputs=[image_rgb, image_ir, video_RGB, video_IR, output_image, output_video, output_text],
         )
 
         def run_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold, input_type):
-            if input_type == "Image":
+            if input_type == "图片":
                 return yolo_inference(image_rgb, image_ir, None, None, model_id, conf_threshold)
             else:
                 return yolo_inference(None, None, video_rgb, video_ir, model_id, conf_threshold)
@@ -332,9 +355,9 @@ def app():
         yolo_infer.click(
             fn=run_inference,
             inputs=[image_rgb, image_ir, video_RGB, video_IR, model_id, conf_threshold, input_type],
-            outputs=[output_image, output_video],
+            outputs=[output_image, output_video, output_text],
         )
-
+        """
         gr.Examples(
             examples=[
                 [
@@ -354,6 +377,7 @@ def app():
             outputs=[output_image],
             cache_examples="lazy",
         )
+        """
 
 
 gradio_app = gr.Blocks()
