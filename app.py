@@ -184,6 +184,10 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
     global previous_model_id, model_rgb, model_ir
     if not (previous_model_id is not None and previous_model_id == model_id):
+        if "obb" not in model_id:
+            task = "detect"
+        else:
+            task = "obb"
         model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
         model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
     previous_model_id = model_id
@@ -292,7 +296,7 @@ def app():
             )
             model_id = gr.Dropdown(
                 label="Model",
-                choices=["yolo11n-obb", "yolo11n-obb-zhcn"],
+                choices=["yolo11n-obb", "yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
                 value="yolo11n-obb",
             )
             conf_threshold = gr.Slider(

@@ -4,7 +4,6 @@ import copy
 import io
 import os
 import tempfile
-import threading
 
 import cv2
 import numpy as np
@@ -190,6 +189,10 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
     global previous_model_id, model_rgb, model_ir
     if not (previous_model_id is not None and previous_model_id == model_id):
+        if "obb" not in model_id:
+            task = "detect"
+        else:
+            task = "obb"
         model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
         model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
     previous_model_id = model_id
@@ -205,7 +208,11 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         results = late_fusion(results_rgb, results_ir)
         annotated_image = results[0].plot()
         # origin
-        # annotated_image_origin = results_rgb[0].plot()
+        annotated_image_origin = results_rgb[0].plot()
+
+        # hstack
+        annotated_image = np.hstack((annotated_image_origin, annotated_image))
+
         return annotated_image[:, :, ::-1], None
     elif video_rgb and video_ir:
         video_path_rgb = tempfile.mktemp(suffix=".webm")
@@ -250,7 +257,11 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             results = late_fusion(results_rgb, results_ir)
             annotated_frame = results[0].plot()
             # origin
-            # annotated_frame_origin = results_rgb[0].plot()
+            annotated_frame_origin = results_rgb[0].plot()
+
+            # hstack
+            annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
+
             out.write(annotated_frame)
         cap_ir.release()
         cap_rgb.release()
