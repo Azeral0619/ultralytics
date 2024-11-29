@@ -213,7 +213,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             output_text_list.append(
                 [
                     str(
-                        tuple(box.xywh.cpu().numpy().tolist())
+                        tuple(box.xywh.cpu().numpy().tolist()[0])
                         if task == "detect"
                         else tuple(box.xywhr.cpu().numpy().tolist())
                     ),
@@ -303,7 +303,7 @@ def app():
 
                 output_text = gr.DataFrame(
                     label="检测结果",
-                    headers=["检测框", "类别", "置信度"],
+                    headers=["检测框(xywh)", "类别(cls)", "置信度(conf)"],
                     datatype=["str", "str"],
                     interactive=False,
                     wrap=True,
