@@ -288,10 +288,10 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             # origin
             annotated_frame_origin = results_rgb[0].plot()
 
-            # hstack
-            annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
-
             output_text_list.extend(extract_results(frame_index, results))
+
+            # hstack
+            annotated_frame = np.hstack((annotated_frame_origin, annotated_frame))
 
             out.write(annotated_frame)
             frame_index += 1
@@ -303,7 +303,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         os.remove(video_path_ir)
         os.remove(video_path_rgb)
 
-        return None, output_video_path, None
+        return None, output_video_path, output_text_list
 
 
 def yolo_inference_for_examples(image_rgb, image_ir, model_path, conf_threshold):
