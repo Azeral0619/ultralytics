@@ -203,8 +203,8 @@ def extract_results(index, results):
         result_data.append(
             [
                 index,  # Frame index
-                results[0].names[int(cls[i])],  # Class Name first
                 rounded_coords,  # Coordinates with one decimal
+                results[0].names[int(cls[i])],  # Class Name first
                 rounded_conf,  # Confidence with one decimal
             ]
         )
