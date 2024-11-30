@@ -206,7 +206,6 @@ def extract_results(index, results):
                 results[0].names[int(cls[i])],  # Class Name first
                 rounded_coords,  # Coordinates with one decimal
                 rounded_conf,  # Confidence with one decimal
-                int(cls[i]),  # Class ID
             ]
         )
 
