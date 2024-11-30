@@ -181,6 +181,38 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
     return results_rgb, results_ir
 
 
+def extract_results(index, results):
+    """提取检测结果，包括坐标、置信度、类别信息，并返回一个列表格式的数据"""
+    result_data = []
+    if task == "obb":
+        boxes = results[0].obb
+        xywhr = boxes.xywhr.cpu().numpy()  # Oriented bounding boxes (center x, center y, width, height, rotation)
+        conf = boxes.conf.cpu().numpy()  # Confidence scores
+        cls = boxes.cls.cpu().numpy()  # Class indices
+    else:
+        boxes = results[0].boxes
+        xywhr = boxes.xywh.cpu().numpy()  # Regular bounding boxes (center x, center y, width, height)
+        conf = boxes.conf.cpu().numpy()  # Confidence scores
+        cls = boxes.cls.cpu().numpy()  # Class indices
+
+    # 将检测结果转化为二维列表，每行包含一个检测框的信息
+    for i in range(len(xywhr)):
+        # 保留坐标和置信度为一位小数
+        rounded_coords = [round(coord, 1) for coord in xywhr[i]]
+        rounded_conf = round(conf[i], 1)  # 保留置信度一位小数
+        result_data.append(
+            [
+                index,  # Frame index
+                results[0].names[int(cls[i])],  # Class Name first
+                rounded_coords,  # Coordinates with one decimal
+                rounded_conf,  # Confidence with one decimal
+                int(cls[i]),  # Class ID
+            ]
+        )
+
+    return result_data
+
+
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
     global previous_model_id, model_rgb, model_ir, task
     if not (previous_model_id is not None and previous_model_id == model_id):
@@ -208,19 +240,7 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
         # hstack
         annotated_image = np.hstack((annotated_image_origin, annotated_image))
 
-        output_text_list = []
-        for i, box in enumerate(results[0].boxes if task == "detect" else results[0].obb):
-            output_text_list.append(
-                [
-                    str(
-                        tuple(box.xywh.cpu().numpy().tolist()[0])
-                        if task == "detect"
-                        else tuple(box.xywhr.cpu().numpy().tolist())
-                    ),
-                    results[0].names[int(box.cls)],
-                    str(box.conf.cpu().numpy().item()),
-                ]
-            )
+        output_text_list = extract_results(0, results)
 
         return annotated_image[:, :, ::-1], None, output_text_list
     elif video_rgb and video_ir:
@@ -255,7 +275,8 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
 
         output_video_path = tempfile.mktemp(suffix=".mp4")
         out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (frame_width * 2, frame_height))
-
+        frame_index = 0
+        output_text_list = []
         while cap_ir.isOpened() and cap_rgb.isOpened():
             ret_ir, frame_ir = cap_ir.read()
             ret_rgb, frame_rgb = cap_rgb.read()
@@ -271,7 +292,11 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             # hstack
             annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
 
+            output_text_list.extend(extract_results(frame_index, results))
+
             out.write(annotated_frame)
+            frame_index += 1
+
         cap_ir.release()
         cap_rgb.release()
         out.release()
@@ -290,44 +315,45 @@ def yolo_inference_for_examples(image_rgb, image_ir, model_path, conf_threshold)
 def app():
     with gr.Blocks():
         with gr.Row():
+            image_rgb = gr.Image(type="pil", label="RGB图片", visible=True)
+            image_ir = gr.Image(type="pil", label="红外图片", visible=True)
+
+            video_RGB = gr.Video(label="RGB视频", visible=False)
+            video_IR = gr.Video(label="红外视频", visible=False)
+
             with gr.Column():
-                image_rgb = gr.Image(type="pil", label="RGB图片", visible=True)
-                image_ir = gr.Image(type="pil", label="红外图片", visible=True)
-
-                video_RGB = gr.Video(label="RGB视频", visible=False)
-                video_IR = gr.Video(label="红外视频", visible=False)
-
+                input_type = gr.Radio(
+                    choices=["图片", "视频"],
+                    value="图片",
+                    label="输入类型",
+                )
+                model_id = gr.Dropdown(
+                    label="模型",
+                    choices=["yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
+                    value="yolo11n-obb-zhcn",
+                )
+                conf_threshold = gr.Slider(
+                    label="置信度阈值",
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.05,
+                    value=0.25,
+                )
+                yolo_infer = gr.Button(value="检测物体")
+    with gr.Blocks():
+        with gr.Row():
             with gr.Column():
                 output_image = gr.Image(type="numpy", label="标注图片", visible=True)
                 output_video = gr.Video(label="标注视频", visible=False)
-
+            with gr.Column():
                 output_text = gr.DataFrame(
                     label="检测结果",
-                    headers=["检测框(xywh)", "类别(cls)", "置信度(conf)"],
+                    headers=["帧索引", "检测框(xywh(r))", "类别(cls)", "置信度(conf)"],
                     datatype=["str", "str"],
                     interactive=False,
-                    wrap=True,
+                    height=output_image.height,
+                    visible=True,
                 )
-
-        with gr.Row():
-            yolo_infer = gr.Button(value="检测物体")
-            input_type = gr.Radio(
-                choices=["图片", "视频"],
-                value="图片",
-                label="输入类型",
-            )
-            model_id = gr.Dropdown(
-                label="模型",
-                choices=["yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
-                value="yolo11n-obb-zhcn",
-            )
-            conf_threshold = gr.Slider(
-                label="置信度阈值",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=0.25,
-            )
 
         def update_visibility(input_type):
             image_rgb = gr.update(visible=True) if input_type == "图片" else gr.update(visible=False)
