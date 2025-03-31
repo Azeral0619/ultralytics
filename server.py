@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import io
@@ -7,177 +8,29 @@ import tempfile
 
 import cv2
 import numpy as np
-import torch
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
-from torchvision.ops import nms
 
 from ultralytics import YOLO
-from ultralytics.utils.ops import nms_rotated
+
+from utils import late_fusion, late_fusion_wbf, load_model_ids, modalities
 
 previous_model_id = None
-model_rgb = None
-model_ir = None
+models = None
 model_path = r"runs/weights"
+model_ids = load_model_ids(model_path)
 task = "obb"
 
 
-def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
-    shape = results_rgb[0].orig_img.shape
-    if task != "obb":
-        # 获取RGB和IR的检测结果
-        boxes_rgb = results_rgb[0].boxes
-        boxes_ir = results_ir[0].boxes
-
-        # 获取RGB和IR的class names
-        names_rgb = results_rgb[0].names
-        names_ir = results_ir[0].names
-
-        # 合并class names并创建映射
-        merged_names = names_rgb
-        name_to_index = {v: k for k, v in names_rgb.items()}
-        index = len(name_to_index)
-
-        # 处理RGB的names
-        # for idx, name in names_rgb.items():
-        #     if name not in name_to_index:
-        #         name_to_index[name] = index
-        #         merged_names[index] = name
-        #         index += 1
-
-        # 处理IR的names
-        for idx, name in names_ir.items():
-            if name not in name_to_index:
-                name_to_index[name] = index
-                merged_names[index] = name
-                index += 1
-
-        # 调整RGB检测框的cls索引
-        # cls_rgb = boxes_rgb.cls.cpu().numpy()
-        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
-        # cls_rgb_new = torch.tensor(cls_rgb_new, device=boxes_rgb.cls.device)
-        # boxes_rgb.cls = cls_rgb_new
-        if boxes_ir is None or boxes_rgb is None:
-            if boxes_ir is None:
-                fused_results = copy.deepcopy(results_rgb)
-                fused_results[0].names = merged_names  # 更新names
-            return fused_results
-
-        # 调整IR检测框的cls索引
-        cls_ir = boxes_ir.cls.cpu().numpy()
-        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
-        cls_ir_new = torch.tensor(cls_ir_new, device=boxes_ir.cls.device)
-        # boxes_ir.cls = cls_ir_new
-
-        # 合并检测框、置信度和类别
-        boxes_combined = torch.cat([boxes_rgb.xyxy, boxes_ir.xyxy], dim=0)
-        scores_combined = torch.cat([boxes_rgb.conf, boxes_ir.conf], dim=0)
-        classes_combined = torch.cat([boxes_rgb.cls, cls_ir_new], dim=0)
-
-        # 使用NMS去除重复检测框
-        indices = nms(boxes_combined, scores_combined, iou_threshold=iou_threshold)
-        fused_boxes = boxes_combined[indices]
-        fused_scores = scores_combined[indices]
-        fused_classes = classes_combined[indices]
-
-        # print(fused_boxes.shape, fused_scores.shape, fused_classes.shape)
-
-        # 创建新的Boxes对象
-        from ultralytics.engine.results import Boxes
-
-        fused_boxes_obj = Boxes(
-            boxes=torch.hstack((fused_boxes, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
-            orig_shape=shape,
-        )
-
-        # 创建新的Results对象
-        fused_results = copy.deepcopy(results_rgb)
-        fused_results[0].boxes = fused_boxes_obj
-        fused_results[0].names = merged_names  # 更新names
-
-        return fused_results
-    else:
-        # 获取RGB和IR的检测结果
-        obb_rgb = results_rgb[0].obb
-        obb_ir = results_ir[0].obb
-
-        # 获取RGB和IR的class names
-        names_rgb = results_rgb[0].names
-        names_ir = results_ir[0].names
-
-        # 合并class names并创建映射
-        merged_names = names_rgb
-        name_to_index = {v: k for k, v in names_rgb.items()}
-        index = len(name_to_index)
-
-        # 处理RGB的names
-        # for idx, name in names_rgb.items():
-        #     if name not in name_to_index:
-        #         name_to_index[name] = index
-        #         merged_names[index] = name
-        #         index += 1
-
-        # 处理IR的names
-        for idx, name in names_ir.items():
-            if name not in name_to_index:
-                name_to_index[name] = index
-                merged_names[index] = name
-                index += 1
-
-        # 调整RGB检测框的cls索引
-        # cls_rgb = obb_rgb.cls.cpu().numpy()
-        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
-        # cls_rgb_new = torch.tensor(cls_rgb_new, device=obb_rgb.cls.device)
-        # obb_rgb.cls = cls_rgb_new
-        if obb_ir is None or obb_rgb is None:
-            if obb_ir is None:
-                fused_results = copy.deepcopy(results_rgb)
-                fused_results[0].names = merged_names  # 更新names
-            return fused_results
-
-        # 调整IR检测框的cls索引
-        cls_ir = obb_ir.cls.cpu().numpy()
-        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
-        cls_ir_new = torch.tensor(cls_ir_new, device=obb_ir.cls.device)
-        # obb_ir.cls = cls_ir_new
-
-        # 合并检测框、置信度和类别
-        obb_combined = torch.cat([obb_rgb.xywhr, obb_ir.xywhr], dim=0)
-        scores_combined = torch.cat([obb_rgb.conf, obb_ir.conf], dim=0)
-        classes_combined = torch.cat([obb_rgb.cls, cls_ir_new], dim=0)
-
-        # 使用NMS去除重复检测框
-        indices = nms_rotated(obb_combined, scores_combined, threshold=iou_threshold)
-        fused_obb = obb_combined[indices]
-        fused_scores = scores_combined[indices]
-        fused_classes = classes_combined[indices]
-        # print(fused_obb.shape, fused_scores.shape, fused_classes.shape)
-
-        # 创建新的Boxes对象
-        from ultralytics.engine.results import OBB
-
-        fused_obb_obj = OBB(
-            boxes=torch.hstack((fused_obb, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
-            orig_shape=shape,
-        )
-
-        # 创建新的Results对象
-        fused_results = copy.deepcopy(results_rgb)
-        fused_results[0].obb = fused_obb_obj
-        fused_results[0].names = merged_names  # 更新names
-
-        return fused_results
-
-
-def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold):
+def parallel_predict(models, source_rgb, source_ir, conf_threshold):
     results_rgb = None
     results_ir = None
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         # 提交预测任务，返回 Future 对象
-        future_rgb = executor.submit(model_rgb.predict, source=source_rgb, conf=conf_threshold)
-        future_ir = executor.submit(model_ir.predict, source=source_ir, conf=conf_threshold)
+        future_rgb = executor.submit(models["rgb"].predict, source=source_rgb, conf=conf_threshold)
+        future_ir = executor.submit(models["ir"].predict, source=source_ir, conf=conf_threshold)
 
         # 获取结果
         results_rgb = future_rgb.result()
@@ -186,15 +39,43 @@ def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold)
     return results_rgb, results_ir
 
 
-def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
-    global previous_model_id, model_rgb, model_ir
+def extract_results(index, results):
+    """提取检测结果，包括坐标、置信度、类别信息，并返回一个列表格式的数据"""
+    result_data = []
+    if task == "obb":
+        boxes = results[0].obb
+        xywhr = boxes.xywhr.cpu().numpy()  # Oriented bounding boxes (center x, center y, width, height, rotation)
+        conf = boxes.conf.cpu().numpy()  # Confidence scores
+        cls = boxes.cls.cpu().numpy()  # Class indices
+    else:
+        boxes = results[0].boxes
+        xywhr = boxes.xywh.cpu().numpy()  # Regular bounding boxes (center x, center y, width, height)
+        conf = boxes.conf.cpu().numpy()  # Confidence scores
+        cls = boxes.cls.cpu().numpy()  # Class indices
+
+    # 将检测结果转化为二维列表，每行包含一个检测框的信息
+    for i in range(len(xywhr)):
+        # 保留坐标和置信度为一位小数
+        rounded_coords = [round(coord, 1) for coord in xywhr[i]]
+        rounded_conf = round(conf[i], 1)  # 保留置信度一位小数
+        result_data.append(
+            [
+                index,  # Frame index
+                rounded_coords,  # Coordinates with one decimal
+                results[0].names[int(cls[i])],  # Class Name first
+                rounded_conf,  # Confidence with one decimal
+            ]
+        )
+
+    return result_data
+
+
+def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold, only_detection_info=False):
+    global previous_model_id, model_ids, models, task
     if not (previous_model_id is not None and previous_model_id == model_id):
-        if "obb" not in model_id:
-            task = "detect"
-        else:
-            task = "obb"
-        model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
-        model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
+        task = model_ids[model_id]["task"]
+        model_info = model_ids[model_id]
+        models = {f"{modality}": YOLO(f"{model_info[modality]}", task=task) for modality in modalities}
     previous_model_id = model_id
     if image_rgb and image_ir:
         if image_rgb.size[0] != image_ir.size[0] or image_rgb.size[1] != image_ir.size[1]:
@@ -204,16 +85,21 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             cv2.cvtColor(np.array(image_rgb), cv2.COLOR_RGB2BGR),
         )
 
-        results_rgb, results_ir = parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
-        results = late_fusion(results_rgb, results_ir)
-        annotated_image = results[0].plot()
-        # origin
-        annotated_image_origin = results_rgb[0].plot()
+        results_rgb, results_ir = parallel_predict(models, image_rgb, image_ir, conf_threshold)
+        results = late_fusion_wbf(results_rgb, results_ir, task=task)
+        if not only_detection_info:
+            annotated_image = results[0].plot()
+            # origin
+            annotated_image_origin = results_rgb[0].plot()
 
-        # hstack
-        annotated_image = np.hstack((annotated_image_origin, annotated_image))
+            # hstack
+            annotated_image = np.hstack((annotated_image_origin, annotated_image))
 
-        return annotated_image[:, :, ::-1], None
+        output_text_list = extract_results(0, results)
+        if not only_detection_info:
+            return annotated_image[:, :, ::-1], None, output_text_list
+        else:
+            return None, None, output_text_list
     elif video_rgb and video_ir:
         video_path_rgb = tempfile.mktemp(suffix=".webm")
         with open(video_path_rgb, "wb") as f:
@@ -244,33 +130,63 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
 
         fps, frame_width, frame_height = fps_ir, frame_width_ir, frame_height_ir
 
-        output_video_path = tempfile.mktemp(suffix=".mp4")
-        out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (frame_width * 2, frame_height))
+        if not only_detection_info:
+            output_video_path = tempfile.mktemp(suffix=".mp4")
+            out = cv2.VideoWriter(
+                output_video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (frame_width * 2, frame_height)
+            )
+            frame_index = 0
+            output_text_list = []
+            while cap_ir.isOpened() and cap_rgb.isOpened():
+                ret_ir, frame_ir = cap_ir.read()
+                ret_rgb, frame_rgb = cap_rgb.read()
+                if not ret_ir or not ret_rgb:
+                    break
 
-        while cap_ir.isOpened() and cap_rgb.isOpened():
-            ret_ir, frame_ir = cap_ir.read()
-            ret_rgb, frame_rgb = cap_rgb.read()
-            if not ret_ir or not ret_rgb:
-                break
+                results_rgb, results_ir = parallel_predict(models, frame_rgb, frame_ir, conf_threshold)
+                # results = late_fusion(results_rgb, results_ir)
+                results = late_fusion_wbf(results_rgb, results_ir, task=task)
+                annotated_frame = results[0].plot()
+                # origin
+                annotated_frame_origin = results_rgb[0].plot()
 
-            results_rgb, results_ir = parallel_predict(model_rgb, model_ir, frame_rgb, frame_ir, conf_threshold)
-            results = late_fusion(results_rgb, results_ir)
-            annotated_frame = results[0].plot()
-            # origin
-            annotated_frame_origin = results_rgb[0].plot()
+                output_text_list.extend(extract_results(frame_index, results))
 
-            # hstack
-            annotated_frame = np.hstack((annotated_frame_origin, annotated_image))
+                # hstack
+                annotated_frame = np.hstack((annotated_frame_origin, annotated_frame))
 
-            out.write(annotated_frame)
-        cap_ir.release()
-        cap_rgb.release()
-        out.release()
+                out.write(annotated_frame)
+                frame_index += 1
 
-        os.remove(video_path_ir)
-        os.remove(video_path_rgb)
+            cap_ir.release()
+            cap_rgb.release()
+            out.release()
 
-        return None, output_video_path
+            os.remove(video_path_ir)
+            os.remove(video_path_rgb)
+
+            return None, output_video_path, output_text_list
+        else:
+            frame_index = 0
+            output_text_list = []
+            while cap_ir.isOpened() and cap_rgb.isOpened():
+                ret_ir, frame_ir = cap_ir.read()
+                ret_rgb, frame_rgb = cap_rgb.read()
+                if not ret_ir or not ret_rgb:
+                    break
+
+                results_rgb, results_ir = parallel_predict(models, frame_rgb, frame_ir, conf_threshold)
+                results = late_fusion_wbf(results_rgb, results_ir, task=task)
+                output_text_list.extend(extract_results(frame_index, results))
+                frame_index += 1
+
+            cap_ir.release()
+            cap_rgb.release()
+
+            os.remove(video_path_ir)
+            os.remove(video_path_rgb)
+
+            return None, None, output_text_list
 
 
 app = FastAPI()
@@ -279,7 +195,7 @@ lock = asyncio.Lock()
 
 @app.post("/inference/image")
 async def inference_image(
-    image_rgb: bytes = None, image_ir: bytes = None, model_id: str = "yolo11n-obb-zhcn", conf_threshold: float = 0.3
+    image_rgb: bytes = None, image_ir: bytes = None, model_id: str = None, conf_threshold: float = 0.3
 ):
     async with lock:
         try:
@@ -287,9 +203,13 @@ async def inference_image(
             image_ir_data = await image_ir.read()
             image_rgb = Image.open(io.BytesIO(image_rgb_data))
             image_ir = Image.open(io.BytesIO(image_ir_data))
-            annotated_image, _ = yolo_inference(image_rgb, image_ir, None, None, model_id, conf_threshold)
+            annotated_image, _, detection_info = yolo_inference(
+                image_rgb, image_ir, None, None, model_id, conf_threshold
+            )
             _, img_encoded = cv2.imencode(".jpg", annotated_image)
-            return StreamingResponse(io.BytesIO(img_encoded.tobytes()), media_type="image/jpeg")
+            img_base64 = base64.b64encode(img_encoded.tobytes()).decode("utf-8")
+            # 返回处理后的图片和检测信息
+            return {"image": img_base64, "detection_info": detection_info}
         except Exception as e:
             return {"error": str(e)}
 
@@ -302,11 +222,27 @@ async def inference_video(
     conf_threshold: float = 0.3,
 ):
     async with lock:
-        # 进行推理
-        _, output_video_path = yolo_inference(None, None, video_rgb, video_ir, model_id, conf_threshold)
+        try:
+            # 进行推理
+            _, output_video_path, detection_info = yolo_inference(
+                None, None, video_rgb, video_ir, model_id, conf_threshold
+            )
+            if output_video_path:
+                # 将视频文件编码为base64
+                with open(output_video_path, "rb") as f:
+                    video_bytes = f.read()
+                video_base64 = base64.b64encode(video_bytes).decode("utf-8")
 
-        # 返回处理后的视频文件
-        return FileResponse(output_video_path, media_type="video/mp4")
+                # 返回视频文件和检测信息
+                return {
+                    "video": video_base64,  # base64编码的视频
+                    "detection_info": detection_info,  # 检测信息
+                }
+            else:
+                # 如果没有生成视频，只返回检测信息
+                return {"detection_info": detection_info}
+        except Exception as e:
+            return {"error": str(e)}
 
 
 if __name__ == "__main__":

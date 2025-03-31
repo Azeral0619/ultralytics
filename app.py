@@ -11,168 +11,24 @@ from torchvision.ops import nms
 from ultralytics.utils.ops import nms_rotated
 import torch
 
+from utils import late_fusion, late_fusion_wbf, load_model_ids, modalities
+
 previous_model_id = None
-model_rgb = None
-model_ir = None
+models = None
 model_path = r"runs/weights"
+model_ids = load_model_ids(model_path)
+
 task = "obb"
 
 
-def late_fusion(results_rgb, results_ir, iou_threshold=0.7):
-    shape = results_rgb[0].orig_img.shape
-    if task != "obb":
-        # 获取RGB和IR的检测结果
-        boxes_rgb = results_rgb[0].boxes
-        boxes_ir = results_ir[0].boxes
-
-        # 获取RGB和IR的class names
-        names_rgb = results_rgb[0].names
-        names_ir = results_ir[0].names
-
-        # 合并class names并创建映射
-        merged_names = names_rgb
-        name_to_index = {v: k for k, v in names_rgb.items()}
-        index = len(name_to_index)
-
-        # 处理RGB的names
-        # for idx, name in names_rgb.items():
-        #     if name not in name_to_index:
-        #         name_to_index[name] = index
-        #         merged_names[index] = name
-        #         index += 1
-
-        # 处理IR的names
-        for idx, name in names_ir.items():
-            if name not in name_to_index:
-                name_to_index[name] = index
-                merged_names[index] = name
-                index += 1
-
-        # 调整RGB检测框的cls索引
-        # cls_rgb = boxes_rgb.cls.cpu().numpy()
-        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
-        # cls_rgb_new = torch.tensor(cls_rgb_new, device=boxes_rgb.cls.device)
-        # boxes_rgb.cls = cls_rgb_new
-        if boxes_ir is None or boxes_rgb is None:
-            if boxes_ir is None:
-                fused_results = copy.deepcopy(results_rgb)
-                fused_results[0].names = merged_names  # 更新names
-            return fused_results
-
-        # 调整IR检测框的cls索引
-        cls_ir = boxes_ir.cls.cpu().numpy()
-        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
-        cls_ir_new = torch.tensor(cls_ir_new, device=boxes_ir.cls.device)
-        # boxes_ir.cls = cls_ir_new
-
-        # 合并检测框、置信度和类别
-        boxes_combined = torch.cat([boxes_rgb.xyxy, boxes_ir.xyxy], dim=0)
-        scores_combined = torch.cat([boxes_rgb.conf, boxes_ir.conf], dim=0)
-        classes_combined = torch.cat([boxes_rgb.cls, cls_ir_new], dim=0)
-
-        # 使用NMS去除重复检测框
-        indices = nms(boxes_combined, scores_combined, iou_threshold=iou_threshold)
-        fused_boxes = boxes_combined[indices]
-        fused_scores = scores_combined[indices]
-        fused_classes = classes_combined[indices]
-
-        # print(fused_boxes.shape, fused_scores.shape, fused_classes.shape)
-
-        # 创建新的Boxes对象
-        from ultralytics.engine.results import Boxes
-
-        fused_boxes_obj = Boxes(
-            boxes=torch.hstack((fused_boxes, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
-            orig_shape=shape,
-        )
-
-        # 创建新的Results对象
-        fused_results = copy.deepcopy(results_rgb)
-        fused_results[0].boxes = fused_boxes_obj
-        fused_results[0].names = merged_names  # 更新names
-
-        return fused_results
-    else:
-        # 获取RGB和IR的检测结果
-        obb_rgb = results_rgb[0].obb
-        obb_ir = results_ir[0].obb
-
-        # 获取RGB和IR的class names
-        names_rgb = results_rgb[0].names
-        names_ir = results_ir[0].names
-
-        # 合并class names并创建映射
-        merged_names = names_rgb
-        name_to_index = {v: k for k, v in names_rgb.items()}
-        index = len(name_to_index)
-
-        # 处理RGB的names
-        # for idx, name in names_rgb.items():
-        #     if name not in name_to_index:
-        #         name_to_index[name] = index
-        #         merged_names[index] = name
-        #         index += 1
-
-        # 处理IR的names
-        for idx, name in names_ir.items():
-            if name not in name_to_index:
-                name_to_index[name] = index
-                merged_names[index] = name
-                index += 1
-
-        # 调整RGB检测框的cls索引
-        # cls_rgb = obb_rgb.cls.cpu().numpy()
-        # cls_rgb_new = [name_to_index[names_rgb[int(c)]] for c in cls_rgb]
-        # cls_rgb_new = torch.tensor(cls_rgb_new, device=obb_rgb.cls.device)
-        # obb_rgb.cls = cls_rgb_new
-        if obb_ir is None or obb_rgb is None:
-            if obb_ir is None:
-                fused_results = copy.deepcopy(results_rgb)
-                fused_results[0].names = merged_names  # 更新names
-            return fused_results
-
-        # 调整IR检测框的cls索引
-        cls_ir = obb_ir.cls.cpu().numpy()
-        cls_ir_new = [name_to_index[names_ir[int(c)]] for c in cls_ir]
-        cls_ir_new = torch.tensor(cls_ir_new, device=obb_ir.cls.device)
-        # obb_ir.cls = cls_ir_new
-
-        # 合并检测框、置信度和类别
-        obb_combined = torch.cat([obb_rgb.xywhr, obb_ir.xywhr], dim=0)
-        scores_combined = torch.cat([obb_rgb.conf, obb_ir.conf], dim=0)
-        classes_combined = torch.cat([obb_rgb.cls, cls_ir_new], dim=0)
-
-        # 使用NMS去除重复检测框
-        indices = nms_rotated(obb_combined, scores_combined, threshold=iou_threshold)
-        fused_obb = obb_combined[indices]
-        fused_scores = scores_combined[indices]
-        fused_classes = classes_combined[indices]
-        # print(fused_obb.shape, fused_scores.shape, fused_classes.shape)
-
-        # 创建新的Boxes对象
-        from ultralytics.engine.results import OBB
-
-        fused_obb_obj = OBB(
-            boxes=torch.hstack((fused_obb, fused_scores.unsqueeze(1), fused_classes.unsqueeze(1))),
-            orig_shape=shape,
-        )
-
-        # 创建新的Results对象
-        fused_results = copy.deepcopy(results_rgb)
-        fused_results[0].obb = fused_obb_obj
-        fused_results[0].names = merged_names  # 更新names
-
-        return fused_results
-
-
-def parallel_predict(model_rgb, model_ir, source_rgb, source_ir, conf_threshold):
+def parallel_predict(models, source_rgb, source_ir, conf_threshold):
     results_rgb = None
     results_ir = None
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         # 提交预测任务，返回 Future 对象
-        future_rgb = executor.submit(model_rgb.predict, source=source_rgb, conf=conf_threshold)
-        future_ir = executor.submit(model_ir.predict, source=source_ir, conf=conf_threshold)
+        future_rgb = executor.submit(models["rgb"].predict, source=source_rgb, conf=conf_threshold)
+        future_ir = executor.submit(models["ir"].predict, source=source_ir, conf=conf_threshold)
 
         # 获取结果
         results_rgb = future_rgb.result()
@@ -213,14 +69,11 @@ def extract_results(index, results):
 
 
 def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_threshold):
-    global previous_model_id, model_rgb, model_ir, task
+    global previous_model_id, model_ids, models, task
     if not (previous_model_id is not None and previous_model_id == model_id):
-        if "obb" not in model_id:
-            task = "detect"
-        else:
-            task = "obb"
-        model_rgb = YOLO(f"{model_path}/{model_id}_RGB.engine", task=task)
-        model_ir = YOLO(f"{model_path}/{model_id}_IR.engine", task=task)
+        task = model_ids[model_id]["task"]
+        model_info = model_ids[model_id]
+        models = {f"{modality}": YOLO(f"{model_info[modality]}", task=task) for modality in modalities}
     previous_model_id = model_id
     if image_rgb and image_ir:
         if image_rgb.size[0] != image_ir.size[0] or image_rgb.size[1] != image_ir.size[1]:
@@ -230,8 +83,8 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             cv2.cvtColor(np.array(image_rgb), cv2.COLOR_RGB2BGR),
         )
 
-        results_rgb, results_ir = parallel_predict(model_rgb, model_ir, image_rgb, image_ir, conf_threshold)
-        results = late_fusion(results_rgb, results_ir)
+        results_rgb, results_ir = parallel_predict(models, image_rgb, image_ir, conf_threshold)
+        results = late_fusion_wbf(results_rgb, results_ir, task=task)
         annotated_image = results[0].plot()
         # origin
         annotated_image_origin = results_rgb[0].plot()
@@ -282,8 +135,9 @@ def yolo_inference(image_rgb, image_ir, video_rgb, video_ir, model_id, conf_thre
             if not ret_ir or not ret_rgb:
                 break
 
-            results_rgb, results_ir = parallel_predict(model_rgb, model_ir, frame_rgb, frame_ir, conf_threshold)
-            results = late_fusion(results_rgb, results_ir)
+            results_rgb, results_ir = parallel_predict(models, frame_rgb, frame_ir, conf_threshold)
+            # results = late_fusion(results_rgb, results_ir)
+            results = late_fusion_wbf(results_rgb, results_ir, task=task)
             annotated_frame = results[0].plot()
             # origin
             annotated_frame_origin = results_rgb[0].plot()
@@ -328,8 +182,8 @@ def app():
                 )
                 model_id = gr.Dropdown(
                     label="模型",
-                    choices=["yolo11n-obb-zhcn", "yolo11n-uav-zhcn"],
-                    value="yolo11n-obb-zhcn",
+                    choices=list(model_ids.keys()),
+                    value=list(model_ids.keys())[0],
                 )
                 conf_threshold = gr.Slider(
                     label="置信度阈值",
