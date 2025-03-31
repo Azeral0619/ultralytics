@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-import copy
 import os
 import gradio as gr
 import cv2
