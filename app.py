@@ -7,9 +7,6 @@ import tempfile
 
 import numpy as np
 from ultralytics import YOLO
-from torchvision.ops import nms
-from ultralytics.utils.ops import nms_rotated
-import torch
 
 from utils import late_fusion, late_fusion_wbf, load_model_ids, modalities
 
